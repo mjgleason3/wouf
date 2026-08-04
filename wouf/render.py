@@ -35,7 +35,7 @@ def _arrival_sort(memories: list[Memory]) -> list[Memory]:
     return sorted(memories, key=lambda m: (m.created_at, m.id))
 
 
-def render_memory(m: Memory) -> str:
+def render_memory(m: Memory, tension_with: list[str] | None = None) -> str:
     if m.type == MemoryType.PROCEDURAL:
         name = m.payload.get("name", m.id)
         version = m.payload.get("version", 1)
@@ -47,16 +47,33 @@ def render_memory(m: Memory) -> str:
         return f"- [{_day_stamp(m.payload.get('when', m.created_at))}] {m.text}"
     if m.type == MemoryType.PROSPECTIVE:
         return f"- when *{m.payload.get('trigger', '?')}*: {m.payload.get('action', m.text)}"
+    if m.type == MemoryType.LAW:
+        lines = [f"- {m.text} [{m.payload.get('confidence', 0.9):.0%}]"]
+        exceptions = m.payload.get("exceptions", [])
+        if exceptions:
+            lines.append(f"    exception: {exceptions[-1]['note']}")
+        for other_text in tension_with or []:
+            lines.append(f'    in tension with: "{other_text}"')
+        return "\n".join(lines)
     return f"- {m.text}"
 
 
-def render_pack(memories: list[Memory]) -> str:
-    """Render a recalled set of memories as the HOT-layer markdown block."""
+def render_pack(memories: list[Memory], tensions: dict[str, list[str]] | None = None) -> str:
+    """Render a recalled set of memories as the HOT-layer markdown block.
+
+    Laws render first: they are the most stable memories of all, so they
+    belong at the very front of the cacheable prefix.
+    """
+    laws = [m for m in memories if m.type == MemoryType.LAW]
     stable = [m for m in memories if m.type in (MemoryType.SEMANTIC, MemoryType.PROCEDURAL)]
     recent = [m for m in memories if m.type == MemoryType.EPISODIC]
     intents = [m for m in memories if m.type == MemoryType.PROSPECTIVE]
+    tensions = tensions or {}
 
     parts = ["# MEMORY (WOUF)"]
+    if laws:
+        parts.append("\n## Guiding laws")
+        parts += [render_memory(m, tensions.get(m.id)) for m in _arrival_sort(laws)]
     if stable:
         parts.append("\n## Stable knowledge")
         parts += [render_memory(m) for m in _arrival_sort(stable)]

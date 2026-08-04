@@ -46,6 +46,8 @@ class WoufSystem:
             )
         elif kind == "intention":
             self.w.intend(item["trigger"], item["action"], now=now)
+        elif kind == "law":
+            self.w.law(item["text"], now=now, confidence=item.get("confidence", 0.9))
         elif kind == "correction":
             target = item["corrects"]
             new_id = self.w.correct(self.proc_ids[target], now=now, steps=item["steps"])

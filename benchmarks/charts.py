@@ -131,7 +131,7 @@ def chart_quality(mode: str, theme: dict, results: dict) -> None:
     ax.set_xticks(range(len(metrics)), [label for label, _ in metrics])
     ax.tick_params(axis="x", colors=theme["ink2"], length=0)
     ax.set_ylim(0, 1.12)
-    ax.set_ylabel("score (12 probes)", color=theme["muted"], fontsize=9)
+    ax.set_ylabel(f"score ({summary['probes']} probes)", color=theme["muted"], fontsize=9)
     ax.legend(frameon=False, fontsize=9, labelcolor=theme["ink2"], loc="upper right", ncols=3)
     finish(fig, ax, theme, "Was the needed memory in context when asked?", "quality", mode)
 

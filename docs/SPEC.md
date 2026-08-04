@@ -38,14 +38,15 @@ and the KV cache keeps paying for it** (§6.1).
 
 ## 3. Memory classes
 
-Five classes, one lifecycle. All classes share the same record shape and decay
+Six classes, one lifecycle. All classes share the same record shape and decay
 physics; they differ in payload, initial stability, and recall behavior.
 
 | Class | Holds | Payload | Initial stability | Special behavior |
 |---|---|---|---|---|
 | **Episodic** | Timestamped events — what happened | `when`, `salience` | 7 days | Sparse focus: only a salience- and recency-ranked subset is in focus per session |
 | **Procedural** | Multi-step processes — how to do things | `steps[]`, `version`, `outcomes` | 21 days | Versioned; `feedback()` and `correct()` refine steps over time, linked by `refines` edges |
-| **Semantic** | Concise facts — what is true | `subject`, `predicate` | 30 days | Slowest decay; contradiction detection on write (same subject+predicate, different statement) |
+| **Semantic** | Concise facts — what is true | `subject`, `predicate` | 30 days | Slow decay; contradiction detection on write (same subject+predicate, different statement) |
+| **Law** | Cross-domain tendencies — what is *usually* true, everywhere | `confidence`, `exceptions[]` | 365 days | Fallback priors for unmapped territory (§3.2): surface in inverse proportion to how well specific memory covers the query |
 | **Working** | The current session's attention set | — | ephemeral | Not persisted: it *is* the assembled context pack, token-budgeted |
 | **Prospective** | Future intentions — trigger → action | `trigger`, `action`, `expires` | until fired/expired | Fires into context when a session's query matches its trigger cue |
 
@@ -55,7 +56,7 @@ physics; they differ in payload, initial stability, and recall behavior.
 @dataclass
 class Memory:
     id: str            # 8-char content hash
-    type: MemoryType   # EPISODIC | PROCEDURAL | SEMANTIC | PROSPECTIVE
+    type: MemoryType   # EPISODIC | PROCEDURAL | SEMANTIC | LAW | PROSPECTIVE
     text: str          # concise canonical statement (≲ 200 chars encouraged)
     created_at: float  # epoch seconds (injected clock)
     last_access: float
@@ -67,6 +68,37 @@ class Memory:
 ```
 
 Working memory has no record: it is the output of `recall()` (§5).
+
+### 3.2 Laws — priors for unmapped territory
+
+Drop someone into a forest they have never seen, with no map: they still know
+water flows downhill, so they walk toward the valley. Laws are that layer of
+memory — cross-domain tendencies (gravity, entropy, "prefer the reversible
+action") that are *almost always* true and therefore guide action precisely
+when no specific memory applies. Three nuances distinguish them from facts:
+
+1. **Fallible.** A law carries a `confidence` prior (default 0.9), rendered
+   with the law so the model treats it as a tendency, not a rule.
+   `confirm(law)` nudges confidence up (`c ← c + 0.1·(1−c)`, capped 0.99);
+   `refute(law, note)` cuts it (`c ← 0.85·c`) **and records the exception**,
+   which renders beneath the law thereafter. Confidence is deliberately
+   separate from stability: stability is how *memorable* a law is; confidence
+   is how *true* it has proven. Both a confirmation and a refutation reinforce
+   stability — a surprising failure is highly memorable.
+2. **In tension.** Laws conflict in specific situations ("prefer reversible
+   actions" vs. "strike while the window is open"). Declared `tension` edges
+   are never silently resolved: when two laws in tension land in the same
+   context pack, each renders with an explicit `in tension with:` note, so the
+   trade-off is surfaced to the model rather than arbitrated by the store.
+3. **Inversely gated.** Recall computes *coverage* — how much of the query the
+   best specific (non-law) memory accounts for (§5). Strong coverage keeps
+   laws out of the pack; weak coverage (an unfamiliar situation) pulls in the
+   top-confidence laws as guidance. Laws also compete lexically like any other
+   memory, so "need water" still finds "water flows downhill" directly.
+
+Laws are managed like everything else: `correct()` amends one (version++,
+`refines` edge, old version preserved); repeated refutation below confidence
+0.35 **repeals** it — archived on the next `tick()`, never deleted.
 
 ## 4. Dynamics — the physics
 
@@ -133,6 +165,7 @@ After each `tick(now)` (decay pass):
 | Condition | Transition |
 |---|---|
 | `R < 0.05` and tier is WARM | → **COLD**: statement compressed to a one-line summary; full record preserved in the archive |
+| Law confidence `< 0.35` | → **COLD** (repealed): refuted too often to guide, kept as history |
 | COLD memory matched by a recall cue | → **WARM** (revival): stability bumped, activation reset — "oh right, *that*" |
 
 Nothing is deleted. *Use forever* is literal.
@@ -145,13 +178,19 @@ Nothing is deleted. *Use forever* is literal.
    `score = relevance(query, m) × (0.6 · R(m) + 0.3 · A(m) + 0.1 · log1p(access_count))`
    where `relevance` is BM25-lite lexical scoring (stdlib implementation) over the statement text.
 2. **Spread**: top-scoring seeds propagate activation to graph neighbors (§4.4); neighbors are rescored with their boosted activation, pulling in related memories that don't lexically match the query.
-3. **Fire prospective triggers**: any prospective memory whose trigger cue matches the query is force-included and marked fired.
-4. **Assemble** the pack within `budget` tokens (estimated at 4 chars/token), best-scored first, then rendered in cache-stable order (§6.1).
-5. **Reinforce** every included memory (§4.2) — inclusion *is* use. This closes the energetic loop: what gets recalled gets stronger.
-6. **Probe the archive**: if the query strongly matches a COLD summary, revive it (§4.5).
+3. **Gate the laws** (§3.2): compute `coverage` — the largest fraction of the
+   query's content tokens matched by any single specific (non-law) memory. If
+   `coverage < 0.4`, the situation is *novel*: force-include the top laws by
+   confidence (at most 3 per pack). Laws also compete lexically at step 1
+   regardless of coverage.
+4. **Fire prospective triggers**: any prospective memory whose trigger cue matches the query is force-included and marked fired.
+5. **Assemble** the pack within `budget` tokens (estimated at 4 chars/token), best-scored first, then rendered in cache-stable order (§6.1). Laws in `tension` that land together each carry an explicit tension note.
+6. **Reinforce** every included memory (§4.2) — inclusion *is* use. This closes the energetic loop: what gets recalled gets stronger.
+7. **Probe the archive**: if the query strongly matches a COLD summary, revive it (§4.5).
 
 The returned `ContextPack` has `.markdown` (the renderable block), `.memories`
-(the included records), and `.tokens` (estimated cost).
+(the included records), `.tokens` (estimated cost), `.novel` (whether law
+fallback engaged), and `.tensions` (law conflicts surfaced in this pack).
 
 ## 6. Storage layers
 
@@ -214,10 +253,11 @@ Typed, weighted edges connect memories across classes:
 | `contradicts` | mutually exclusive | semantic ↔ semantic |
 | `about` | event concerns fact/entity | episodic → semantic |
 | `triggers` | intention invokes process | prospective → procedural |
+| `tension` | conflict in specific situations, surfaced never resolved | law ↔ law |
 
 Edges are created explicitly via `link()`, or automatically: on `remember()`,
 lexical similarity against existing memories proposes `relates_to` edges above
-a threshold; `correct()` on a procedure creates `refines`; contradiction
+a threshold; `correct()` on a procedure or law creates `refines`; contradiction
 detection creates `contradicts` and demotes the older fact's stability.
 
 ## 8. Benchmark protocol
@@ -257,6 +297,12 @@ w.remember_event("Shipped v2.1", now=t, salience=0.8)
 w.remember_procedure("deploy-api",
     steps=["run tests", "build image", "push", "migrate", "verify"], now=t)
 w.intend(trigger="deploy", action="run smoke tests first", now=t)
+
+lid = w.law("When uncertain, prefer the reversible action", now=t, confidence=0.9)
+w.confirm(lid, now=t)                                # held → confidence up
+w.refute(lid, now=t, note="hotfix window was closing")  # exception recorded,
+                                                     #   confidence down
+w.link(lid, other_law, "tension")                    # declared conflict
 
 pack = w.recall("how do I deploy?", budget=800, now=t)
 pack.markdown                                        # → paste into the prompt

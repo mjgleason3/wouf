@@ -35,3 +35,11 @@ class Graph:
             for e in self.edges
             if (e.src == mem_id or e.dst == mem_id) and (kind is None or e.kind == kind)
         ]
+
+    def tension_pairs(self, ids: set[str]) -> list[tuple[str, str]]:
+        """Declared law conflicts where both parties are present in a pack."""
+        return [
+            (e.src, e.dst)
+            for e in self.edges
+            if e.kind == EdgeKind.TENSION and e.src in ids and e.dst in ids
+        ]

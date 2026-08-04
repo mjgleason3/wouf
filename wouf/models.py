@@ -13,6 +13,7 @@ class MemoryType(str, Enum):
     EPISODIC = "episodic"
     PROCEDURAL = "procedural"
     SEMANTIC = "semantic"
+    LAW = "law"
     PROSPECTIVE = "prospective"
 
 
@@ -27,6 +28,7 @@ INITIAL_STABILITY = {
     MemoryType.EPISODIC: 7.0,
     MemoryType.PROCEDURAL: 21.0,
     MemoryType.SEMANTIC: 30.0,
+    MemoryType.LAW: 365.0,  # laws barely decay; their truth is tracked by confidence
     MemoryType.PROSPECTIVE: 60.0,  # intentions persist until fired or expired
 }
 
@@ -38,6 +40,7 @@ class EdgeKind(str, Enum):
     CONTRADICTS = "contradicts"
     ABOUT = "about"
     TRIGGERS = "triggers"
+    TENSION = "tension"  # laws that conflict in specific situations
 
 
 @dataclass

@@ -23,6 +23,10 @@ AUTO_LINK_MAX = 3
 SUMMARY_LENGTH = 72
 REVIVAL_OVERLAP = 2  # content tokens shared with a query that revive a COLD memory
 CONTRADICTION_DEMOTION = 0.2
+CONFIRM_GAIN = 0.1  # confirm: c ← c + gain·(1−c), capped
+REFUTE_FACTOR = 0.85  # refute: c ← factor·c
+REPEAL_CONFIDENCE = 0.35  # below this, a law is repealed (archived) on tick
+STANDING_LAWS = 5  # max laws pinned in the standing block
 
 
 class Wouf:
@@ -75,6 +79,32 @@ class Wouf:
             outcomes=[],
         )
 
+    def law(self, text: str, now: float, confidence: float = 0.9) -> str:
+        """A cross-domain tendency: almost always true, everywhere, but fallible.
+
+        Laws are the fallback layer — they surface when no specific memory
+        covers the situation. Confidence tracks how true a law has proven
+        (via confirm/refute); stability tracks how memorable it is.
+        """
+        return self.remember(text, now, type=MemoryType.LAW, confidence=confidence, exceptions=[])
+
+    def confirm(self, law_id: str, now: float) -> None:
+        """The law held in practice: confidence up, memorability reinforced."""
+        m = self.memories[law_id]
+        c = m.payload.get("confidence", 0.9)
+        m.payload["confidence"] = round(min(0.99, c + CONFIRM_GAIN * (1.0 - c)), 4)
+        dynamics.reinforce(m, now)
+
+    def refute(self, law_id: str, now: float, note: str = "") -> None:
+        """The law failed here: confidence down, exception recorded and rendered.
+
+        Still reinforces stability — a surprising failure is highly memorable.
+        """
+        m = self.memories[law_id]
+        m.payload["confidence"] = round(m.payload.get("confidence", 0.9) * REFUTE_FACTOR, 4)
+        m.payload.setdefault("exceptions", []).append({"when": now, "note": note})
+        dynamics.reinforce(m, now)
+
     def intend(
         self, trigger: str, action: str, now: float, expires: float | None = None, once: bool = True
     ) -> str:
@@ -114,6 +144,14 @@ class Wouf:
         Ambient presence is not retrieval, so inclusion here does NOT
         reinforce; only query recall closes the energetic loop.
         """
+        laws = sorted(
+            (
+                m
+                for m in self.memories.values()
+                if m.type == MemoryType.LAW and m.tier != Tier.COLD and not m.payload.get("superseded")
+            ),
+            key=lambda m: (-m.payload.get("confidence", 0.9), m.created_at, m.id),
+        )[:STANDING_LAWS]
         stable = sorted(
             (
                 m
@@ -140,13 +178,18 @@ class Wouf:
 
         included: list[Memory] = []
         spent = 10  # header overhead
-        for m in stable + recent + intents:
+        for m in laws + stable + recent + intents:
             cost = estimate_tokens(render_memory(m))
             if spent + cost > budget:
                 continue
             included.append(m)
             spent += cost
-        return render_pack(included)
+
+        tensions: dict[str, list[str]] = {}
+        for a, b in self.graph.tension_pairs({m.id for m in included}):
+            tensions.setdefault(a, []).append(self.memories[b].text)
+            tensions.setdefault(b, []).append(self.memories[a].text)
+        return render_pack(included, tensions)
 
     # ------------------------------------------------------------ procedural
 
@@ -190,9 +233,14 @@ class Wouf:
                 and m.payload.get("expires") is not None
                 and now > m.payload["expires"]
             )
+            repealed = (
+                m.type == MemoryType.LAW
+                and m.payload.get("confidence", 0.9) < REPEAL_CONFIDENCE
+            )
             faded = dynamics.retrievability(m, now) < dynamics.ARCHIVE_THRESHOLD
-            if m.payload.get("superseded") or expired or faded:
-                self._archive_memory(m, now, reason="expired" if expired else "decayed")
+            if m.payload.get("superseded") or expired or repealed or faded:
+                reason = "expired" if expired else "repealed" if repealed else "decayed"
+                self._archive_memory(m, now, reason=reason)
                 archived.append(m.id)
         return archived
 
@@ -243,8 +291,8 @@ class Wouf:
         query_tokens = set(tokenize(query))
         revived = []
         for entry in list(self.archive):
-            if entry["reason"] == "fired" or entry["record"]["payload"].get("superseded"):
-                continue  # spent intentions and replaced versions stay archived
+            if entry["reason"] in ("fired", "repealed") or entry["record"]["payload"].get("superseded"):
+                continue  # spent intentions, repealed laws, replaced versions stay archived
             overlap = query_tokens & set(tokenize(entry["record"]["text"]))
             if len(overlap) >= REVIVAL_OVERLAP:
                 m = Memory.from_dict(entry["record"])
