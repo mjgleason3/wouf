@@ -12,9 +12,10 @@ from pathlib import Path
 
 from . import dynamics, recall as recall_mod
 from .graph import Graph
-from .models import INITIAL_STABILITY, EdgeKind, Memory, MemoryType, Tier
+from .models import DAY, INITIAL_STABILITY, EdgeKind, Memory, MemoryType, Tier
 from .recall import ContextPack
 from .relevance import similarity, tokenize
+from .render import estimate_tokens, render_memory, render_pack
 from .store import Store
 
 AUTO_LINK_SIMILARITY = 0.25
@@ -103,6 +104,49 @@ class Wouf:
 
     def get(self, mem_id: str) -> Memory | None:
         return self.memories.get(mem_id)
+
+    def standing_block(self, now: float, budget: int = 400) -> str:
+        """The session preamble: highest-stability memories, cache-stable order.
+
+        This is what you pin at the front of the system prompt. Because
+        selection and ordering favor stability, the block barely changes
+        between sessions — which is exactly what prompt caches reward.
+        Ambient presence is not retrieval, so inclusion here does NOT
+        reinforce; only query recall closes the energetic loop.
+        """
+        stable = sorted(
+            (
+                m
+                for m in self.memories.values()
+                if m.tier != Tier.COLD
+                and not m.payload.get("superseded")
+                and m.type in (MemoryType.SEMANTIC, MemoryType.PROCEDURAL)
+            ),
+            key=lambda m: (-m.stability, m.id),
+        )
+        recent = sorted(
+            (
+                m
+                for m in self.memories.values()
+                if m.type == MemoryType.EPISODIC and (now - m.created_at) <= 3 * DAY
+            ),
+            key=lambda m: (-m.payload.get("salience", 0.5), m.id),
+        )[:2]
+        intents = [
+            m
+            for m in self.memories.values()
+            if m.type == MemoryType.PROSPECTIVE and not m.payload.get("fired_at")
+        ]
+
+        included: list[Memory] = []
+        spent = 10  # header overhead
+        for m in stable + recent + intents:
+            cost = estimate_tokens(render_memory(m))
+            if spent + cost > budget:
+                continue
+            included.append(m)
+            spent += cost
+        return render_pack(included)
 
     # ------------------------------------------------------------ procedural
 

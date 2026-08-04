@@ -46,6 +46,25 @@ def test_stable_ordering_keeps_prefix_stable_as_memories_accrue():
     assert "cache layer" in after
 
 
+def test_standing_block_is_stable_across_sessions_as_events_accrue():
+    w = Wouf()
+    w.remember("Nyx works at Globex on the platform team", now=0.0)
+    w.remember_procedure("release", ["tag", "build", "announce"], now=0.0)
+    day3 = w.standing_block(now=3 * DAY)
+    w.remember_event("CI flaked on test_billing again", now=4 * DAY)
+    w.remember_event("sprint planning moved to Wednesday", now=4 * DAY)
+    day4 = w.standing_block(now=4 * DAY)
+    assert day4.startswith(day3)  # new events land at the back, prefix intact
+    assert stable_prefix_ratio(day3, day4) > 0.5
+
+
+def test_standing_block_does_not_reinforce():
+    w = Wouf()
+    mid = w.remember("ambient fact about the build cache", now=0.0)
+    w.standing_block(now=1 * DAY)
+    assert w.get(mid).access_count == 0
+
+
 def test_cost_ratio_maps_prefix_stability_to_cache_pricing():
     assert estimated_cost_ratio(0.0) == 1.0
     assert abs(estimated_cost_ratio(1.0) - 0.1) < 1e-9

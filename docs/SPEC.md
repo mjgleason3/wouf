@@ -186,7 +186,13 @@ memories within each section sorted by **descending stability, then id**:
 High-stability memories change rarely — by definition. Sorting them first means
 the *front* of the rendered block (and therefore the prompt prefix) is nearly
 identical between consecutive sessions, while churn (new events, fresh facts)
-accumulates at the *back*. Prompt caches bill cached prefix tokens at ~10% of
+accumulates at the *back*. Two renders use this ordering: the query-driven
+`recall()` pack, and the **standing block** (`standing_block(now, budget)`) —
+the query-independent session preamble of the most stable memories, meant to be
+pinned at the front of the system prompt. The standing block is the cacheable
+surface; prefix-stability is measured on it. Ambient presence in the standing
+block is not retrieval, so it does not reinforce — only query recall closes the
+energetic loop. Prompt caches bill cached prefix tokens at ~10% of
 the fresh-token price, so prefix stability converts directly into cost:
 
 ```
@@ -254,6 +260,10 @@ w.intend(trigger="deploy", action="run smoke tests first", now=t)
 
 pack = w.recall("how do I deploy?", budget=800, now=t)
 pack.markdown                                        # → paste into the prompt
+
+w.standing_block(now=t, budget=400)                  # session preamble: the
+                                                     #   cache-stable block to pin
+                                                     #   at the front of the prompt
 
 w.correct(proc_id, steps=[...], now=t)               # version++, refines edge
 w.feedback(proc_id, success=False, note="step 3 failed", now=t)

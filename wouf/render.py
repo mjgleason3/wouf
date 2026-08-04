@@ -24,8 +24,15 @@ def _day_stamp(ts: float) -> str:
     return datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
 
 
-def _stable_sort(memories: list[Memory]) -> list[Memory]:
-    return sorted(memories, key=lambda m: (-m.stability, m.id))
+def _arrival_sort(memories: list[Memory]) -> list[Memory]:
+    """Arrival order: append-only rendering, so new entries land at the back.
+
+    Stability decides *which* memories are selected (see standing_block);
+    arrival order decides *where* they render. Ordering by current stability
+    would reshuffle the block every time reinforcement changes a value —
+    exactly the churn a cache-stable prefix cannot afford.
+    """
+    return sorted(memories, key=lambda m: (m.created_at, m.id))
 
 
 def render_memory(m: Memory) -> str:
@@ -52,13 +59,13 @@ def render_pack(memories: list[Memory]) -> str:
     parts = ["# MEMORY (WOUF)"]
     if stable:
         parts.append("\n## Stable knowledge")
-        parts += [render_memory(m) for m in _stable_sort(stable)]
+        parts += [render_memory(m) for m in _arrival_sort(stable)]
     if recent:
         parts.append("\n## Recent context")
-        parts += [render_memory(m) for m in _stable_sort(recent)]
+        parts += [render_memory(m) for m in _arrival_sort(recent)]
     if intents:
         parts.append("\n## Active intentions")
-        parts += [render_memory(m) for m in _stable_sort(intents)]
+        parts += [render_memory(m) for m in _arrival_sort(intents)]
     return "\n".join(parts)
 
 

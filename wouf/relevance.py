@@ -19,8 +19,19 @@ K1 = 1.5
 B = 0.75
 
 
+def _stem(token: str) -> str:
+    """Just enough stemming that 'deploying' finds 'deploy'. Not Porter."""
+    if len(token) >= 6 and token.endswith("ing"):
+        return token[:-3]
+    if len(token) >= 5 and token.endswith("ed"):
+        return token[:-2]
+    if len(token) >= 4 and token.endswith("s") and not token.endswith(("ss", "us", "is")):
+        return token[:-1]
+    return token
+
+
 def tokenize(text: str) -> list[str]:
-    return [t for t in _TOKEN_RE.findall(text.lower()) if t not in _STOPWORDS]
+    return [_stem(t) for t in _TOKEN_RE.findall(text.lower()) if t not in _STOPWORDS]
 
 
 class Scorer:
