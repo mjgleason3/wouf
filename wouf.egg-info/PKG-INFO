@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: wouf
+Version: 0.1.0
+Summary: Write Once, Use Forever - an energetic memory system for LLM agents
+Author: Michael Gleason
+License-Expression: MIT
+Keywords: llm,agents,memory,context,kv-cache
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: matplotlib; extra == "dev"

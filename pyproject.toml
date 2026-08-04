@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wouf"
+version = "0.1.0"
+description = "Write Once, Use Forever - an energetic memory system for LLM agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Michael Gleason" }]
+keywords = ["llm", "agents", "memory", "context", "kv-cache"]
+
+[project.optional-dependencies]
+dev = ["pytest", "matplotlib"]
+
+[tool.setuptools]
+packages = ["wouf"]
