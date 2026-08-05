@@ -9,7 +9,7 @@ description = "Write Once, Use Forever - an energetic memory system for LLM agen
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-authors = [{ name = "Michael Gleason" }]
+authors = [{ name = "Joe Gleason III" }]
 keywords = ["llm", "agents", "memory", "context", "kv-cache"]
 
 [project.optional-dependencies]
