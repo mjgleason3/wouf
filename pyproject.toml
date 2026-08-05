@@ -14,6 +14,7 @@ keywords = ["llm", "agents", "memory", "context", "kv-cache"]
 
 [project.optional-dependencies]
 dev = ["pytest", "matplotlib"]
+llm = ["anthropic"]  # only for examples/05_agent_integration.py --live
 
 [tool.setuptools]
 packages = ["wouf"]

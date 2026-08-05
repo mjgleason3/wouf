@@ -167,6 +167,43 @@ w.tick(now); w.save()         # decay pass + persist
 
 `ContextPack.markdown` is the integration seam for any agent framework — WOUF never calls a model itself.
 
+## Wiring it into your agent
+
+WOUF plugs into any LLM harness at **three seams** — where the prompt is built, where each turn is answered, and where new information gets written back:
+
+```text
+                 session start                every turn                    write path
+              ┌────────────────┐        ┌──────────────────────┐    ┌─────────────────────────┐
+your harness  │ w.tick(now)    │        │ pack = w.recall(msg) │    │ w.remember(...)         │
+              │ standing_block │───┐    │ inject pack into the │    │ w.remember_procedure()  │
+              └────────────────┘   │    │ user turn            │    │ w.intend() / w.law()    │
+                                   ▼    └──────────────────────┘    │ w.correct() on feedback │
+              system prompt  [persona | STANDING BLOCK ⚓cache]      └─────────────────────────┘
+              user turn      [<memory> recall pack </memory> + message]
+```
+
+1. **Session start** — `tick(now)` runs the decay pass, then `standing_block()` goes into the **system prompt behind a prompt-cache breakpoint**. The block is deterministic and appends new memories at the back, so it stays byte-identical between turns — a prefix-matching cache (like the Claude API's `cache_control`) serves it at ~10% cost from the second request on.
+2. **Every turn** — `recall(user_message)` builds the query-driven pack; wrap it in a `<memory>` tag inside the user turn, *after* the cached prefix. Recall reinforces what it surfaces, which is what closes the energetic loop.
+3. **Write path** — your harness calls `remember()` / `law()` / `intend()` / `correct()` when the user states something durable. Two common styles: explicit commands (`/remember ...`), or exposing these methods as **tools** in an LLM tool-use loop so the model decides what's worth keeping. WOUF is storage, retrieval, and lifecycle — extraction policy stays yours.
+
+The distilled loop (Anthropic SDK shown; any provider works the same way):
+
+```python
+system = [
+    {"type": "text", "text": PERSONA},
+    {"type": "text", "text": w.standing_block(now=now, budget=600),
+     "cache_control": {"type": "ephemeral"}},          # cache-stable by design
+]
+pack = w.recall(user_message, now=now, budget=400)
+response = client.messages.create(
+    model="claude-opus-5", max_tokens=1024, system=system,
+    messages=[{"role": "user",
+               "content": f"<memory>\n{pack.markdown}\n</memory>\n\n{user_message}"}],
+)
+```
+
+[`examples/05_agent_integration.py`](examples/05_agent_integration.py) is the runnable version — offline by default (a deterministic stand-in model shows exactly which memories reached the prompt), and `--live` runs the same loop against the Claude API and prints the cache read/write counters so you can watch the standing block get served from cache.
+
 ## Examples
 
 | Script | What it shows |
@@ -175,6 +212,7 @@ w.tick(now); w.save()         # decay pass + persist
 | [`examples/02_procedural_learning.py`](examples/02_procedural_learning.py) | a deploy fails → one correction → v2 supersedes, v1 preserved but never recalled |
 | [`examples/03_decay_and_revival.py`](examples/03_decay_and_revival.py) | rehearsed vs ignored memories, archival, and revival by cue |
 | [`examples/04_laws.py`](examples/04_laws.py) | laws stepping in on novel ground, staying out on familiar ground, tension and refutation |
+| [`examples/05_agent_integration.py`](examples/05_agent_integration.py) | the full agent loop — standing block, per-turn recall, write path; offline or `--live` against the Claude API |
 
 ```text
  day   rehearsed fact   ignored event
@@ -196,6 +234,34 @@ docs/SPEC.md   the full design specification
 ```
 
 Design details — the recall scoring formula, tiering thresholds, edge semantics, benchmark protocol — live in **[docs/SPEC.md](docs/SPEC.md)**.
+
+## Credits & related work
+
+WOUF is a synthesis, and the load-bearing ideas have long paper trails. What each one contributed:
+
+**Cognitive science foundations**
+- Ebbinghaus (1885), *Über das Gedächtnis* — the exponential forgetting curve behind `R = exp(−Δt/S)`.
+- Tulving (1972), *Episodic and semantic memory* — the episodic/semantic distinction the class taxonomy starts from.
+- Collins & Loftus (1975), *A spreading-activation theory of semantic processing* — recall pumping energy into graph neighbors.
+- Anderson & Schooler (1991), *Reflections of the environment in memory*, and the ACT-R declarative memory model (Anderson et al., 2004) — need-based activation from recency and frequency of use; the closest ancestor of WOUF's stability/activation split.
+- Einstein & McDaniel's prospective-memory research — cue-triggered future intentions, the model for `intend()`.
+- Lake, Ullman, Tenenbaum & Gershman (2017), [*Building Machines That Learn and Think Like People*](https://arxiv.org/abs/1604.00289) — intuitive-physics priors that transfer to novel situations; the inspiration for the Laws layer.
+
+**Spaced repetition**
+- Wozniak & Gorzelanczyk (1994), *Optimization of repetition spacing in the practice of learning* (the SuperMemo line), and [FSRS](https://github.com/open-spaced-repetition) — Ye, Su & Cao (KDD '22), *A Stochastic Shortest Path Algorithm for Optimizing Spaced Repetition Scheduling* — the stability/retrievability formulation and the spacing effect in `S ← S × (1 + α·(1−R))`.
+
+**Memory for LLM agents**
+- Park et al. (2023), [*Generative Agents*](https://arxiv.org/abs/2304.03442) — scoring memories by recency × importance × relevance.
+- Packer et al. (2023), [*MemGPT*](https://arxiv.org/abs/2310.08560) — tiered memory with an OS paging metaphor; kin to HOT/WARM/COLD.
+- Zhong et al. (2023), [*MemoryBank*](https://arxiv.org/abs/2305.10250) — applying the Ebbinghaus curve to LLM memory decay.
+- Sumers, Yao, Narasimhan & Griffiths (2023), [*Cognitive Architectures for Language Agents*](https://arxiv.org/abs/2309.02427) — the episodic/semantic/procedural taxonomy for agents that WOUF's classes align with.
+- Gutiérrez et al. (2024), [*HippoRAG*](https://arxiv.org/abs/2405.14831) — hippocampal-indexing-inspired retrieval over a memory graph.
+- Xu et al. (2025), [*A-MEM: Agentic Memory for LLM Agents*](https://arxiv.org/abs/2502.12110) — dynamically linked memory notes, Zettelkasten-style.
+
+**The cache angle**
+- Gim et al. (2023), [*Prompt Cache: Modular Attention Reuse for Low-Latency Inference*](https://arxiv.org/abs/2311.04934) — attention-state reuse across prompts; together with production prefix caching (e.g. [Anthropic's prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)), the reason WOUF orders context by mutation rate.
+
+WOUF's particular mix — one lifecycle across six classes, confidence-carrying laws with inverse novelty gating, and cache-stable rendering as a first-class design goal — is its own, but it stands on all of the above.
 
 ## License
 
