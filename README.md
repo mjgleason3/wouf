@@ -11,6 +11,10 @@
 ![tests](https://img.shields.io/badge/tests-37%20passing-brightgreen)
 ![license MIT](https://img.shields.io/badge/license-MIT-lightgrey)
 
+<img src="docs/demo/demo.gif" alt="50-second terminal demo: facts, a procedure, an intention and a law stated once on day 0; three weeks of noise later, recall finds the fact, fires the intention, and falls back to laws on novel ground" width="100%">
+
+<sub>Live recording of the real library — regenerate with [`vhs docs/demo/demo.tape`](docs/demo/demo.tape), or grab the [MP4](https://github.com/mjgleason3/wouf/releases/download/v0.1.0/demo.mp4).</sub>
+
 </div>
 
 LLM agents forget. Keeping everything in the prompt gets expensive and silently truncates; notes-in-files have no ranking or lifecycle; vector RAG is stateless — nothing strengthens, nothing fades, contradictions pile up. WOUF treats memory the way brains do: as an **energetic system** where memories carry strength, *use* reinforces, *disuse* decays, and related memories pull each other into focus. And it adds one insight unique to LLMs: **order context by mutation rate, so the prompt prefix stays stable and the KV cache keeps paying for it.**

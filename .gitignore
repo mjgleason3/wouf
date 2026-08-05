@@ -4,3 +4,4 @@ __pycache__/
 .pytest_cache/
 .wouf-demo/
 benchmarks/out/
+docs/demo/demo.mp4
