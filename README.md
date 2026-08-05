@@ -135,7 +135,7 @@ python -m benchmarks.charts  # regenerates docs/assets/*.svg
 ## Quickstart
 
 ```bash
-git clone <this-repo> && cd wouf
+git clone https://github.com/mjgleason3/wouf.git && cd wouf
 pip install -e .             # pure stdlib — no dependencies
 ```
 
